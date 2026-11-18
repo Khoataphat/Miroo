@@ -16,7 +16,8 @@ export class ToolBoxCheckbox extends ToolBoxElement<HTMLInputElement> {
         const input = document.createElement('input');
         input.type = 'checkbox';
         const label = document.createElement('label');
-        label.title = title;
+        label.setAttribute('aria-label', title);
+        label.setAttribute('data-title', title);
         label.classList.add('control-button');
         let iconOff: Icon;
         let iconOn: Icon | undefined;

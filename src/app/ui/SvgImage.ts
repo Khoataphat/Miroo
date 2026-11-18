@@ -4,6 +4,7 @@ import CameraSVG from '../../public/images/skin-light/ic_photo_camera_678_48dp.s
 import PowerSVG from '../../public/images/skin-light/ic_power_settings_new_678_48px.svg';
 import VolumeDownSVG from '../../public/images/skin-light/ic_volume_down_678_48px.svg';
 import VolumeUpSVG from '../../public/images/skin-light/ic_volume_up_678_48px.svg';
+import VolumeOffSVG from '../../public/images/skin-light/ic_volume_off_678_48px.svg';
 import BackSVG from '../../public/images/skin-light/System_Back_678.svg';
 import HomeSVG from '../../public/images/skin-light/System_Home_678.svg';
 import OverviewSVG from '../../public/images/skin-light/System_Overview_678.svg';
@@ -16,6 +17,8 @@ import ArrowBackSVG from '../../public/images/buttons/arrow_back.svg';
 import ToggleOnSVG from '../../public/images/buttons/toggle_on.svg';
 import ToggleOffSVG from '../../public/images/buttons/toggle_off.svg';
 import FullScreenSVG from '../../public/images/buttons/full_screen.svg';
+import LiveStreamSVG from '../../public/images/buttons/livestream.svg';
+import AspectRatioSVG from '../../public/images/buttons/aspect_ratio.svg';
 
 export enum Icon {
     BACK,
@@ -24,9 +27,12 @@ export enum Icon {
     POWER,
     VOLUME_UP,
     VOLUME_DOWN,
+    VOLUME_OFF,
     MORE,
     CAMERA,
     FULL_SCREEN,
+    LIVESTREAM,
+    ASPECT_RATIO,
     KEYBOARD,
     CANCEL,
     OFFLINE,
@@ -44,6 +50,10 @@ export default class SvgImage {
         switch (type) {
             case Icon.FULL_SCREEN:
                 return FullScreenSVG;
+            case Icon.LIVESTREAM:
+                return LiveStreamSVG;
+            case Icon.ASPECT_RATIO:
+                return AspectRatioSVG;
             case Icon.KEYBOARD:
                 return KeyboardSVG;
             case Icon.MORE:
@@ -56,6 +66,8 @@ export default class SvgImage {
                 return VolumeDownSVG;
             case Icon.VOLUME_UP:
                 return VolumeUpSVG;
+            case Icon.VOLUME_OFF:
+                return VolumeOffSVG;
             case Icon.BACK:
                 return BackSVG;
             case Icon.HOME:

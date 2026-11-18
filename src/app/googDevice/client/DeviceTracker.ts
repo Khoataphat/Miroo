@@ -112,13 +112,42 @@ export class DeviceTracker extends BaseDeviceTracker<GoogDeviceDescriptor, never
                     udid,
                     player: decodeURIComponent(playerCodeName),
                     ws: url,
-                    fitToScreen: true,
+                    fitToScreen: false,
                 },
                 decodeURIComponent(playerFullName),
                 this.params,
             );
             item.appendChild(link);
         });
+
+        const quickConnectBtn = document.getElementById(`quick_connect_${fullName}`) as HTMLAnchorElement | null;
+        if (quickConnectBtn) {
+            const players = StreamClientScrcpy.getPlayers();
+            const recommended =
+                players.find((p) => p.playerCodeName.toLowerCase() === 'webcodecs') ||
+                players.find((p) => p.playerCodeName.toLowerCase() === 'mse') ||
+                players[0];
+            if (recommended) {
+                const link = DeviceTracker.buildLink(
+                    {
+                        action,
+                        udid,
+                        player: decodeURIComponent(recommended.playerCodeName),
+                        ws: url,
+                        fitToScreen: false,
+                    },
+                    '',
+                    this.params,
+                );
+                quickConnectBtn.href = link.href;
+                quickConnectBtn.classList.remove('disabled');
+                quickConnectBtn.title = `Bắt đầu điều khiển qua ${recommended.playerFullName}`;
+                const qcText = quickConnectBtn.querySelector('.qc-btn-text');
+                if (qcText) {
+                    qcText.textContent = 'Bắt đầu điều khiển';
+                }
+            }
+        }
     }
 
     onActionButtonClick = (event: MouseEvent): void => {
@@ -140,6 +169,17 @@ export class DeviceTracker extends BaseDeviceTracker<GoogDeviceDescriptor, never
             this.ws.send(JSON.stringify(data));
         }
     };
+
+    public sendStartServer(udid: string): void {
+        const data: Message = {
+            id: this.getNextId(),
+            type: ControlCenterCommand.START_SERVER,
+            data: { udid },
+        };
+        if (this.ws && this.ws.readyState === this.ws.OPEN) {
+            this.ws.send(JSON.stringify(data));
+        }
+    }
 
     private static getLocalStorageKey(udid: string): string {
         return `device_list::${udid}::interface`;
@@ -179,38 +219,162 @@ export class DeviceTracker extends BaseDeviceTracker<GoogDeviceDescriptor, never
         const isActive = device.state === DeviceState.DEVICE;
         let hasPid = false;
         const servicesId = `device_services_${fullName}`;
-        const row = html`<div class="device ${isActive ? 'active' : 'not-active'}">
-            <div class="device-header">
-                <div class="device-name">${device['ro.product.manufacturer']} ${device['ro.product.model']}</div>
-                <div class="device-serial">${device.udid}</div>
-                <div class="device-version">
-                    <div class="release-version">${device['ro.build.version.release']}</div>
-                    <div class="sdk-version">${device['ro.build.version.sdk']}</div>
+        const quickConnectId = `quick_connect_${fullName}`;
+        const toolsGroupId = `tools_container_${fullName}`;
+        const playersGroupId = `players_container_${fullName}`;
+        const infraGroupId = `infra_container_${fullName}`;
+
+        const brand = (device['ro.product.manufacturer'] || '').trim();
+        const model = (device['ro.product.model'] || '').trim();
+        const displayName = brand || model ? `${brand} ${model}`.trim() : 'Thiết bị Android';
+        const release = device['ro.build.version.release'] || 'N/A';
+        const sdk = device['ro.build.version.sdk'] || 'N/A';
+        const abi = device['ro.product.cpu.abi'] || '';
+
+        const row = html`<div class="device ${isActive ? 'active' : 'not-active'}" id="device_${fullName}">
+            <div class="device-card-inner">
+                <div class="device-header">
+                    <div class="device-icon-box">
+                        <svg
+                            viewBox="0 0 24 24"
+                            width="24"
+                            height="24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.8"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            class="device-glyph"
+                        >
+                            <rect x="5" y="2" width="14" height="20" rx="3" ry="3"></rect>
+                            <line x1="12" y1="18" x2="12.01" y2="18"></line>
+                        </svg>
+                    </div>
+                    <div class="device-title-area">
+                        <div class="device-name-row">
+                            <span class="device-name" title="${displayName}">${displayName}</span>
+                        </div>
+                        <div class="device-serial-row">
+                            <span class="device-serial" title="${device.udid}">${device.udid}</span>
+                        </div>
+                    </div>
+                    <div
+                        class="device-status-badge ${isActive ? 'online' : 'offline'}"
+                        title="Trạng thái: ${device.state}"
+                    >
+                        <span class="status-pulse-dot"></span>
+                        <span class="status-label-text">${isActive ? 'Online' : device.state}</span>
+                    </div>
+                    <div class="device-state" title="State: ${device.state}" style="display:none;"></div>
                 </div>
-                <div class="device-state" title="State: ${device.state}"></div>
+
+                <div class="device-specs-bar">
+                    <div class="spec-pill os-pill">
+                        <span class="spec-label">Android</span>
+                        <span class="release-version spec-value">${release}</span>
+                    </div>
+                    <div class="spec-pill sdk-pill">
+                        <span class="spec-label">SDK</span>
+                        <span class="sdk-version spec-value">${sdk}</span>
+                    </div>
+                    <div class="spec-pill abi-pill" style="${abi ? '' : 'display: none;'}">
+                        <span class="spec-label">CPU</span>
+                        <span class="spec-value">${abi}</span>
+                    </div>
+                </div>
+
+                <div class="device-primary-action">
+                    <a
+                        id="${quickConnectId}"
+                        class="btn-quick-connect ${isActive ? '' : 'disabled'}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Bắt đầu điều khiển"
+                    >
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" class="play-icon">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                        </svg>
+                        <span class="qc-btn-text">Bắt đầu điều khiển</span>
+                    </a>
+                </div>
+
+                <details class="device-advanced-panel">
+                    <summary class="advanced-summary">
+                        <span class="summary-left">
+                            <svg
+                                viewBox="0 0 24 24"
+                                width="15"
+                                height="15"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                class="adv-icon"
+                            >
+                                <circle cx="12" cy="12" r="3"></circle>
+                                <path
+                                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                                ></path>
+                            </svg>
+                            Tuỳ chọn nâng cao
+                        </span>
+                        <svg
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            class="chevron-icon"
+                        >
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </summary>
+                    <div class="advanced-body">
+                        <div class="adv-group-section">
+                            <div class="adv-group-header">Công cụ quản lý</div>
+                            <div id="${toolsGroupId}" class="adv-group-items tools-grid"></div>
+                        </div>
+
+                        <div class="adv-group-section">
+                            <div class="adv-group-header">Trình phát (Players)</div>
+                            <div id="${playersGroupId}" class="adv-group-items players-grid"></div>
+                        </div>
+
+                        <div class="adv-group-section">
+                            <div class="adv-group-header">Hạ tầng & Kết nối</div>
+                            <div id="${infraGroupId}" class="adv-group-items infra-grid"></div>
+                        </div>
+                    </div>
+                </details>
+
+                <div id="${servicesId}" class="services" style="display:none;"></div>
             </div>
-            <div id="${servicesId}" class="services"></div>
         </div>`.content;
-        const services = row.getElementById(servicesId);
-        if (!services) {
-            return;
-        }
 
-        DeviceTracker.tools.forEach((tool) => {
-            const entry = tool.createEntryForDeviceList(device, blockClass, this.params);
-            if (entry) {
-                if (Array.isArray(entry)) {
-                    entry.forEach((item) => {
-                        item && services.appendChild(item);
-                    });
-                } else {
-                    services.appendChild(entry);
+        const toolsContainer = row.getElementById(toolsGroupId);
+        const playersContainer = row.getElementById(playersGroupId);
+        const infraContainer = row.getElementById(infraGroupId);
+        const quickConnectBtn = row.getElementById(quickConnectId) as HTMLAnchorElement | null;
+
+        if (toolsContainer) {
+            DeviceTracker.tools.forEach((tool) => {
+                const entry = tool.createEntryForDeviceList(device, blockClass, this.params);
+                if (entry) {
+                    if (Array.isArray(entry)) {
+                        entry.forEach((item) => {
+                            item && toolsContainer.appendChild(item);
+                        });
+                    } else {
+                        toolsContainer.appendChild(entry);
+                    }
                 }
-            }
-        });
+            });
 
-        const streamEntry = StreamClientScrcpy.createEntryForDeviceList(device, blockClass, fullName, this.params);
-        streamEntry && services.appendChild(streamEntry);
+            const streamEntry = StreamClientScrcpy.createEntryForDeviceList(device, blockClass, fullName, this.params);
+            streamEntry && toolsContainer.appendChild(streamEntry);
+        }
 
         DESC_COLUMNS.forEach((item) => {
             const { title } = item;
@@ -223,7 +387,9 @@ export class DeviceTracker extends BaseDeviceTracker<GoogDeviceDescriptor, never
             }
             const td = document.createElement('div');
             td.classList.add(DeviceTracker.titleToClassName(title), blockClass);
-            services.appendChild(td);
+            if (infraContainer) {
+                infraContainer.appendChild(td);
+            }
             if (fieldName === 'pid') {
                 hasPid = value !== '-1';
                 const actionButton = document.createElement('button');
@@ -255,7 +421,7 @@ export class DeviceTracker extends BaseDeviceTracker<GoogDeviceDescriptor, never
                     actionButton.appendChild(SvgImage.create(SvgImage.Icon.OFFLINE));
                 }
                 const span = document.createElement('span');
-                span.innerText = value;
+                span.innerText = `PID: ${value}`;
                 actionButton.appendChild(span);
                 td.appendChild(actionButton);
             } else if (fieldName === 'interfaces') {
@@ -321,21 +487,114 @@ export class DeviceTracker extends BaseDeviceTracker<GoogDeviceDescriptor, never
             }
         });
 
-        if (DeviceTracker.CREATE_DIRECT_LINKS) {
+        if (DeviceTracker.CREATE_DIRECT_LINKS && playersContainer) {
             const name = `${DeviceTracker.AttributePrefixPlayerFor}${fullName}`;
             StreamClientScrcpy.getPlayers().forEach((playerClass) => {
                 const { playerCodeName, playerFullName } = playerClass;
                 const playerTd = document.createElement('div');
-                playerTd.classList.add(blockClass);
+                playerTd.classList.add(blockClass, 'player-chip');
                 playerTd.setAttribute('name', encodeURIComponent(name));
                 playerTd.setAttribute(DeviceTracker.AttributePlayerFullName, encodeURIComponent(playerFullName));
                 playerTd.setAttribute(DeviceTracker.AttributePlayerCodeName, encodeURIComponent(playerCodeName));
-                services.appendChild(playerTd);
+                playersContainer.appendChild(playerTd);
             });
         }
 
+        if (quickConnectBtn && isActive) {
+            quickConnectBtn.onclick = (event: MouseEvent) => {
+                if (!hasPid) {
+                    event.preventDefault();
+                    const targetWindow = window.open('about:blank', '_blank');
+                    if (targetWindow) {
+                        try {
+                            targetWindow.document.write(`
+                                <!DOCTYPE html>
+                                <html lang="vi">
+                                <head>
+                                    <title>Miroo - Đang khởi động...</title>
+                                    <meta charset="utf-8">
+                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                    <style>
+                                        body {
+                                            margin: 0;
+                                            height: 100vh;
+                                            display: flex;
+                                            flex-direction: column;
+                                            align-items: center;
+                                            justify-content: center;
+                                            background: #0b0f19;
+                                            color: #f1f5f9;
+                                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                                            text-align: center;
+                                            padding: 20px;
+                                            box-sizing: border-box;
+                                        }
+                                        .spinner {
+                                            width: 44px;
+                                            height: 44px;
+                                            border: 3.5px solid rgba(59, 130, 246, 0.2);
+                                            border-top-color: #3b82f6;
+                                            border-radius: 50%;
+                                            animation: spin 0.8s linear infinite;
+                                            margin-bottom: 22px;
+                                        }
+                                        @keyframes spin { to { transform: rotate(360deg); } }
+                                        h2 { font-size: 19px; margin: 0 0 10px; font-weight: 600; }
+                                        p { font-size: 13.5px; color: #94a3b8; margin: 0; max-width: 420px; line-height: 1.5; }
+                                    </style>
+                                </head>
+                                <body>
+                                    <div class="spinner"></div>
+                                    <h2>Đang kết nối tới ${displayName}...</h2>
+                                    <p>Đang tự động khởi chạy scrcpy-server trên thiết bị. Cửa sổ điều khiển sẽ mở trong giây lát.</p>
+                                </body>
+                                </html>
+                            `);
+                        } catch (e) {
+                            // cross-origin ignore
+                        }
+                    }
+
+                    this.sendStartServer(device.udid);
+                    const qcText = quickConnectBtn.querySelector('.qc-btn-text');
+                    if (qcText) {
+                        qcText.textContent = 'Đang khởi động server...';
+                    }
+
+                    const checkInterval = setInterval(() => {
+                        const current = this.getDescriptorByUdid(device.udid);
+                        if (current && current.pid && current.pid !== -1) {
+                            clearInterval(checkInterval);
+                            clearTimeout(timeoutTimer);
+                            if (targetWindow && !targetWindow.closed) {
+                                const btn = document.getElementById(quickConnectId) as HTMLAnchorElement | null;
+                                if (btn && btn.href && btn.href !== 'javascript:void(0)' && !btn.href.endsWith('#')) {
+                                    targetWindow.location.href = btn.href;
+                                }
+                            }
+                        }
+                    }, 250);
+
+                    const timeoutTimer = setTimeout(() => {
+                        clearInterval(checkInterval);
+                        if (qcText) {
+                            qcText.textContent = 'Bắt đầu điều khiển';
+                        }
+                        if (targetWindow && !targetWindow.closed) {
+                            targetWindow.document.body.innerHTML = `
+                                <div style="text-align:center; padding: 40px; font-family: sans-serif; color: #f87171;">
+                                    <h3>Không thể khởi động scrcpy server</h3>
+                                    <p style="color:#94a3b8; font-size: 14px;">Vui lòng kiểm tra quyền gỡ lỗi USB trên điện thoại hoặc bấm "Quét lại thiết bị".</p>
+                                </div>
+                            `;
+                        }
+                    }, 12000);
+                }
+            };
+        }
+
         tbody.appendChild(row);
-        if (DeviceTracker.CREATE_DIRECT_LINKS && hasPid && selectedInterfaceUrl) {
+        if (DeviceTracker.CREATE_DIRECT_LINKS && selectedInterfaceUrl) {
             this.updateLink({
                 url: selectedInterfaceUrl,
                 name: selectedInterfaceName,

@@ -33,6 +33,13 @@ export class WebSocketServer implements Service {
         const TAG = `WebSocket Server {tcp:${port}}`;
         const wss = new WSServer({ server });
         wss.on('connection', async (ws: WS, request) => {
+            if (request.socket && typeof request.socket.setNoDelay === 'function') {
+                request.socket.setNoDelay(true);
+            }
+            const rawWsSocket = (ws as unknown as { _socket?: { setNoDelay?: (noDelay?: boolean) => void } })._socket;
+            if (rawWsSocket && typeof rawWsSocket.setNoDelay === 'function') {
+                rawWsSocket.setNoDelay(true);
+            }
             if (!request.url) {
                 ws.close(4001, `[${TAG}] Invalid url`);
                 return;

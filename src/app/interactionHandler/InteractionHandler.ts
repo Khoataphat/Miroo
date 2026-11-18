@@ -218,26 +218,30 @@ export abstract class InteractionHandler {
         if (touchX < 0 || touchX > clientWidth || touchY < 0 || touchY > clientHeight) {
             invalid = true;
         }
-        const eps = 1e5;
-        const ratio = width / height;
-        const shouldBe = Math.round(eps * ratio);
-        const haveNow = Math.round((eps * clientWidth) / clientHeight);
-        if (shouldBe > haveNow) {
-            const realHeight = Math.ceil(clientWidth / ratio);
-            const top = (clientHeight - realHeight) / 2;
-            if (touchY < top || touchY > top + realHeight) {
-                invalid = true;
+        const isFillMode =
+            document.body.classList.contains('is-landscape') || document.body.classList.contains('fit-fill');
+        if (!isFillMode) {
+            const eps = 1e5;
+            const ratio = width / height;
+            const shouldBe = Math.round(eps * ratio);
+            const haveNow = Math.round((eps * clientWidth) / clientHeight);
+            if (shouldBe > haveNow) {
+                const realHeight = Math.ceil(clientWidth / ratio);
+                const top = (clientHeight - realHeight) / 2;
+                if (touchY < top || touchY > top + realHeight) {
+                    invalid = true;
+                }
+                touchY -= top;
+                clientHeight = realHeight;
+            } else if (shouldBe < haveNow) {
+                const realWidth = Math.ceil(clientHeight * ratio);
+                const left = (clientWidth - realWidth) / 2;
+                if (touchX < left || touchX > left + realWidth) {
+                    invalid = true;
+                }
+                touchX -= left;
+                clientWidth = realWidth;
             }
-            touchY -= top;
-            clientHeight = realHeight;
-        } else if (shouldBe < haveNow) {
-            const realWidth = Math.ceil(clientHeight * ratio);
-            const left = (clientWidth - realWidth) / 2;
-            if (touchX < left || touchX > left + realWidth) {
-                invalid = true;
-            }
-            touchX -= left;
-            clientWidth = realWidth;
         }
         const x = (touchX * width) / clientWidth;
         const y = (touchY * height) / clientHeight;

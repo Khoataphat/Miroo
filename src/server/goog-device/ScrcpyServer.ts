@@ -4,8 +4,9 @@ import '../../../vendor/Genymobile/scrcpy/LICENSE';
 import { Device } from './Device';
 import { ARGS_STRING, SERVER_PACKAGE, SERVER_PROCESS_NAME, SERVER_VERSION } from '../../common/Constants';
 import path from 'path';
-import PushTransfer from '@dead50f7/adbkit/lib/adb/sync/pushtransfer';
+import fs from 'fs';
 import { ServerVersion } from './ServerVersion';
+import { AdbUtils } from './AdbUtils';
 
 const TEMP_PATH = '/data/local/tmp/';
 const FILE_DIR = path.join(__dirname, 'vendor/Genymobile/scrcpy');
@@ -16,10 +17,50 @@ type WaitForPidParams = { tryCounter: number; processExited: boolean; lookPidFil
 
 export class ScrcpyServer {
     private static PID_FILE_PATH = '/data/local/tmp/ws_scrcpy.pid';
-    private static async copyServer(device: Device): Promise<PushTransfer> {
-        const src = path.join(FILE_DIR, FILE_NAME);
+
+    private static getJarPath(): string {
+        const candidates = [
+            path.join(FILE_DIR, FILE_NAME),
+            path.join(process.cwd(), 'dist/vendor/Genymobile/scrcpy', FILE_NAME),
+            path.join(process.cwd(), 'vendor/Genymobile/scrcpy', FILE_NAME),
+        ];
+        for (const candidate of candidates) {
+            if (fs.existsSync(candidate)) {
+                return candidate;
+            }
+        }
+        return candidates[0];
+    }
+
+    private static async copyServer(device: Device): Promise<void> {
+        const src = this.getJarPath();
         const dst = TEMP_PATH + FILE_NAME; // don't use path.join(): will not work on win host
-        return device.push(src, dst);
+
+        try {
+            const localStat = fs.statSync(src);
+            const remoteStats = await AdbUtils.stats(device.udid, dst).catch(() => undefined);
+            if (remoteStats && remoteStats.size === localStat.size) {
+                return;
+            }
+        } catch {
+            // Proceed to push if stat check fails
+        }
+
+        const transfer = await device.push(src, dst);
+        return new Promise<void>((resolve, reject) => {
+            transfer.on('end', () => resolve());
+            transfer.on('error', (err: Error) => reject(err));
+        });
+    }
+
+    public static async killOrphanedServers(device: Device): Promise<void> {
+        try {
+            await device.runShellCommandAdbKit(
+                `pkill -9 -f scrcpy-server.jar 2>/dev/null; for p in /proc/[0-9]*; do grep -Fq "scrcpy-server.jar" "$p/cmdline" 2>/dev/null && kill -9 "\${p#/proc/}" 2>/dev/null; done`,
+            );
+        } catch (e: any) {
+            console.warn(device.TAG, 'Cleanup of old scrcpy server:', e?.message || e);
+        }
     }
 
     // Important to notice that we first try to read PID from file.
@@ -27,29 +68,36 @@ export class ScrcpyServer {
     // PID file only created after WebSocket server has been successfully started.
     private static async waitForServerPid(device: Device, params: WaitForPidParams): Promise<number[] | undefined> {
         const { tryCounter, processExited, lookPidFile } = params;
-        if (processExited) {
+        if (processExited || !device.isConnected()) {
             return;
         }
         const timeout = 500 + 100 * tryCounter;
         if (lookPidFile) {
             const fileName = ScrcpyServer.PID_FILE_PATH;
-            const content = await device.runShellCommandAdbKit(`test -f ${fileName} && cat ${fileName}`);
+            const content = await device
+                .runShellCommandAdbKit(`test -f ${fileName} && cat ${fileName}`)
+                .catch(() => '');
             if (content.trim()) {
                 const pid = parseInt(content, 10);
                 if (pid && !isNaN(pid)) {
                     const realPid = await this.getServerPid(device);
                     if (realPid?.includes(pid)) {
                         return realPid;
-                    } else {
-                        params.lookPidFile = false;
+                    }
+                    const isAlive = await device
+                        .runShellCommandAdbKit(
+                            `test -d /proc/${pid} && grep -q "${SERVER_PACKAGE}" /proc/${pid}/cmdline 2>/dev/null && echo "YES"`,
+                        )
+                        .catch(() => '');
+                    if (isAlive.includes('YES')) {
+                        return [pid];
                     }
                 }
             }
-        } else {
-            const list = await this.getServerPid(device);
-            if (Array.isArray(list) && list.length) {
-                return list;
-            }
+        }
+        const list = await this.getServerPid(device);
+        if (Array.isArray(list) && list.length) {
+            return list;
         }
         if (++params.tryCounter > 5) {
             throw new Error('Failed to start server');
@@ -71,38 +119,43 @@ export class ScrcpyServer {
         }
         const serverPid: number[] = [];
         const promises = list.map((pid) => {
-            return device.runShellCommandAdbKit(`cat /proc/${pid}/cmdline`).then((output) => {
-                const args = output.split('\0');
-                if (!args.length || args[0] !== SERVER_PROCESS_NAME) {
-                    return;
-                }
-                let first = args[0];
-                while (args.length && first !== SERVER_PACKAGE) {
-                    args.shift();
-                    first = args[0];
-                }
-                if (args.length < 3) {
-                    return;
-                }
-                const versionString = args[1];
-                if (versionString === SERVER_VERSION) {
-                    serverPid.push(pid);
-                } else {
-                    const currentVersion = new ServerVersion(versionString);
-                    if (currentVersion.isCompatible()) {
-                        const desired = new ServerVersion(SERVER_VERSION);
-                        if (desired.gt(currentVersion)) {
-                            console.log(
-                                device.TAG,
-                                `Found old server version running (PID: ${pid}, Version: ${versionString})`,
-                            );
-                            console.log(device.TAG, 'Perform kill now');
-                            device.killProcess(pid);
+            return device
+                .runShellCommandAdbKit(`cat /proc/${pid}/cmdline`)
+                .then((output) => {
+                    const args = output.split('\0');
+                    if (!args.length || args[0] !== SERVER_PROCESS_NAME) {
+                        return;
+                    }
+                    let first = args[0];
+                    while (args.length && first !== SERVER_PACKAGE) {
+                        args.shift();
+                        first = args[0];
+                    }
+                    if (args.length < 3) {
+                        return;
+                    }
+                    const versionString = args[1];
+                    if (versionString === SERVER_VERSION) {
+                        serverPid.push(pid);
+                    } else {
+                        const currentVersion = new ServerVersion(versionString);
+                        if (currentVersion.isCompatible()) {
+                            const desired = new ServerVersion(SERVER_VERSION);
+                            if (desired.gt(currentVersion)) {
+                                console.log(
+                                    device.TAG,
+                                    `Found old server version running (PID: ${pid}, Version: ${versionString})`,
+                                );
+                                console.log(device.TAG, 'Perform kill now');
+                                device.killProcess(pid);
+                            }
                         }
                     }
-                }
-                return;
-            });
+                    return;
+                })
+                .catch(() => {
+                    // Ignore transient process inspection errors
+                });
         });
         await Promise.all(promises);
         return serverPid;
@@ -116,6 +169,10 @@ export class ScrcpyServer {
         if (Array.isArray(list) && list.length) {
             return list;
         }
+
+        // Clean stale PID file and orphan server instances to avoid port 8886 binding collisions
+        await device.runShellCommandAdbKit(`rm -f ${this.PID_FILE_PATH}`).catch(() => '');
+        await this.killOrphanedServers(device);
         await this.copyServer(device);
 
         const params: WaitForPidParams = { tryCounter: 0, processExited: false, lookPidFile: true };
@@ -126,8 +183,8 @@ export class ScrcpyServer {
                     console.log(device.TAG, 'Server exited:', out);
                 }
             })
-            .catch((e) => {
-                console.log(device.TAG, 'Error:', e.message);
+            .catch((e: any) => {
+                console.log(device.TAG, 'Error:', e?.message || e);
             })
             .finally(() => {
                 params.processExited = true;

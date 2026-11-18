@@ -30,6 +30,7 @@ import { ACTION } from '../../../common/Action';
 import { StreamReceiverScrcpy } from './StreamReceiverScrcpy';
 import { ParamsDeviceTracker } from '../../../types/ParamsDeviceTracker';
 import { ScrcpyFilePushStream } from '../filePush/ScrcpyFilePushStream';
+import { AudioPlayer } from '../../audio/AudioPlayer';
 
 type StartParams = {
     udid: string;
@@ -60,6 +61,7 @@ export class StreamClientScrcpy
     private filePushHandler?: FilePushHandler;
     private fitToScreen?: boolean;
     private readonly streamReceiver: StreamReceiverScrcpy;
+    private audioPlayer?: AudioPlayer;
 
     public static registerPlayer(playerClass: PlayerClass): void {
         if (playerClass.isSupported()) {
@@ -76,6 +78,17 @@ export class StreamClientScrcpy
         for (const value of StreamClientScrcpy.players.values()) {
             if (value.playerFullName === playerName || value.playerCodeName === playerName) {
                 playerClass = value;
+            }
+        }
+        if (playerName.toLowerCase() === 'broadway' || playerName === 'Broadway.js') {
+            const modernPlayer = Array.from(StreamClientScrcpy.players.values()).find(
+                (p) => p.playerCodeName === 'webcodecs' || p.playerCodeName === 'mse',
+            );
+            if (modernPlayer) {
+                console.warn(
+                    `${TAG} Upgrading legacy "${playerName}" to "${modernPlayer.playerFullName}" for hardware video decoding compatibility.`,
+                );
+                return modernPlayer;
             }
         }
         return playerClass;
@@ -113,10 +126,11 @@ export class StreamClientScrcpy
     }
 
     private static createVideoSettingsWithBounds(old: VideoSettings, newBounds: Size): VideoSettings {
+        const clampedBounds = new Size(Math.min(newBounds.width, 1920), Math.min(newBounds.height, 1920));
         return new VideoSettings({
             crop: old.crop,
             bitrate: old.bitrate,
-            bounds: newBounds,
+            bounds: clampedBounds,
             maxFps: old.maxFps,
             iFrameInterval: old.iFrameInterval,
             sendFrameMeta: old.sendFrameMeta,
@@ -216,7 +230,7 @@ export class StreamClientScrcpy
         }
         if (this.fitToScreen) {
             const newBounds = this.getMaxSize();
-            if (newBounds) {
+            if (newBounds && (newBounds.width >= 1920 || newBounds.height >= 1920)) {
                 currentSettings = StreamClientScrcpy.createVideoSettingsWithBounds(currentSettings, newBounds);
                 this.player.setVideoSettings(currentSettings, this.fitToScreen, false);
             }
@@ -263,16 +277,37 @@ export class StreamClientScrcpy
         this.streamReceiver.off('displayInfo', this.onDisplayInfo);
         this.streamReceiver.off('disconnected', this.onDisconnected);
 
+        this.audioPlayer?.destroy();
+        this.audioPlayer = undefined;
+
         this.filePushHandler?.release();
         this.filePushHandler = undefined;
         this.touchHandler?.release();
         this.touchHandler = undefined;
+        this.player?.off('video-view-resize', this.onVideoViewResize);
+        document.body.classList.remove('is-landscape');
         window.removeEventListener('resize', this.onWindowResize);
         if (this.resizeTimeoutId !== undefined) {
             clearTimeout(this.resizeTimeoutId);
             this.resizeTimeoutId = undefined;
         }
     };
+
+    public getAudioPlayer(): AudioPlayer | undefined {
+        return this.audioPlayer;
+    }
+
+    private startAudio(udid: string): void {
+        try {
+            const audioPlayer = new AudioPlayer();
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${location.host}/?action=proxy-audio&udid=${encodeURIComponent(udid)}`;
+            audioPlayer.connect(wsUrl);
+            this.audioPlayer = audioPlayer;
+        } catch (e) {
+            console.warn(TAG, 'Failed to start audio player:', e);
+        }
+    }
 
     public startStream({ udid, player, playerName, videoSettings, fitToScreen }: StartParams): void {
         if (!udid) {
@@ -319,12 +354,15 @@ export class StreamClientScrcpy
             if (parent) {
                 parent.removeChild(moreBox);
             }
+            this.audioPlayer?.destroy();
+            this.audioPlayer = undefined;
             this.streamReceiver.stop();
             if (this.player) {
                 this.player.stop();
             }
         };
 
+        this.startAudio(udid);
         const googMoreBox = (this.moreBox = new GoogMoreBox(udid, player, this));
         const moreBox = googMoreBox.getHolderElement();
         googMoreBox.setOnStop(stop);
@@ -343,7 +381,7 @@ export class StreamClientScrcpy
         document.body.appendChild(deviceView);
         if (fitToScreen) {
             const newBounds = this.getMaxSize();
-            if (newBounds) {
+            if (newBounds && (newBounds.width >= 1920 || newBounds.height >= 1920)) {
                 videoSettings = StreamClientScrcpy.createVideoSettingsWithBounds(videoSettings, newBounds);
             }
         }
@@ -359,6 +397,13 @@ export class StreamClientScrcpy
         streamReceiver.on('clientsStats', this.onClientsStats);
         streamReceiver.on('displayInfo', this.onDisplayInfo);
         streamReceiver.on('disconnected', this.onDisconnected);
+
+        player.on('video-view-resize', this.onVideoViewResize);
+        const currentScreenInfo = player.getScreenInfo();
+        if (currentScreenInfo) {
+            this.onVideoViewResize(currentScreenInfo.videoSize);
+        }
+
         console.log(TAG, player.getName(), udid);
 
         // When the player is in fit-to-screen mode, re-encode the stream at the
@@ -367,6 +412,14 @@ export class StreamClientScrcpy
         // resolution.
         window.addEventListener('resize', this.onWindowResize);
     }
+
+    private onVideoViewResize = (size: Size): void => {
+        if (size.width > size.height) {
+            document.body.classList.add('is-landscape');
+        } else {
+            document.body.classList.remove('is-landscape');
+        }
+    };
 
     private resizeTimeoutId?: ReturnType<typeof setTimeout>;
 
@@ -379,20 +432,10 @@ export class StreamClientScrcpy
 
     private applyFitToScreenBounds = (): void => {
         this.resizeTimeoutId = undefined;
-        if (!this.player || !this.player.getFitToScreenStatus()) {
-            return;
-        }
-        const newBounds = this.getMaxSize();
-        if (!newBounds) {
-            return;
-        }
-        const current = this.player.getVideoSettings();
-        if (current.bounds && current.bounds.equals(newBounds)) {
-            return;
-        }
-        const updated = StreamClientScrcpy.createVideoSettingsWithBounds(current, newBounds);
-        this.player.setVideoSettings(updated, true, false);
-        this.sendNewVideoSetting(updated);
+        // Responsive CSS scaling (object-fit: contain) handles window resizing on the PC's GPU.
+        // We do NOT destroy and recreate Android's MediaCodec / VirtualDisplay mid-stream,
+        // which prevents Qualcomm Codec 2.0 driver / SurfaceFlinger freezes on Android 15.
+        return;
     };
 
     public sendMessage(message: ControlMessage): void {

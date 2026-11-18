@@ -3,6 +3,20 @@ import WS from 'ws';
 import { ACTION } from '../../common/Action';
 import { Multiplexer } from '../../packages/multiplexer/Multiplexer';
 
+function applySocketNoDelay(ws: WS | Multiplexer | undefined): void {
+    if (!ws) {
+        return;
+    }
+    const raw = (ws as unknown as { _socket?: { setNoDelay?: (noDelay?: boolean) => void } })._socket;
+    if (raw && typeof raw.setNoDelay === 'function') {
+        raw.setNoDelay(true);
+    }
+    const multiplexerInner = (ws as unknown as { ws?: { _socket?: { setNoDelay?: (noDelay?: boolean) => void } } }).ws;
+    if (multiplexerInner?._socket && typeof multiplexerInner._socket.setNoDelay === 'function') {
+        multiplexerInner._socket.setNoDelay(true);
+    }
+}
+
 export class WebsocketProxy extends Mw {
     public static readonly TAG = 'WebsocketProxy';
     private remoteSocket?: WS;
@@ -35,15 +49,29 @@ export class WebsocketProxy extends Mw {
 
     constructor(ws: WS | Multiplexer) {
         super(ws);
+        applySocketNoDelay(this.ws);
     }
 
     public async init(remoteUrl: string): Promise<void> {
         this.name = `[${WebsocketProxy.TAG}{$${remoteUrl}}]`;
         const remoteSocket = new WS(remoteUrl);
         remoteSocket.onopen = () => {
+            const rawRemote = (remoteSocket as unknown as { _socket?: { setNoDelay?: (noDelay?: boolean) => void } })
+                ._socket;
+            if (rawRemote && typeof rawRemote.setNoDelay === 'function') {
+                rawRemote.setNoDelay(true);
+            }
+            applySocketNoDelay(this.ws);
             this.remoteSocket = remoteSocket;
             this.flush();
         };
+        remoteSocket.on('upgrade', () => {
+            const rawRemote = (remoteSocket as unknown as { _socket?: { setNoDelay?: (noDelay?: boolean) => void } })
+                ._socket;
+            if (rawRemote && typeof rawRemote.setNoDelay === 'function') {
+                rawRemote.setNoDelay(true);
+            }
+        });
         remoteSocket.onmessage = (event) => {
             if (this.ws && this.ws.readyState === this.ws.OPEN) {
                 if (Array.isArray(event.data)) {

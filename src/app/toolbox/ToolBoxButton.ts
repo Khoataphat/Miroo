@@ -7,7 +7,8 @@ export class ToolBoxButton extends ToolBoxElement<HTMLButtonElement> {
         super(title, optional);
         const btn = document.createElement('button');
         btn.classList.add('control-button');
-        btn.title = title;
+        btn.setAttribute('aria-label', title);
+        btn.setAttribute('data-title', title);
         btn.appendChild(SvgImage.create(icon));
         this.btn = btn;
     }

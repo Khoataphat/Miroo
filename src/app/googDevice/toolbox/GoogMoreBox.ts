@@ -215,6 +215,85 @@ export class GoogMoreBox {
             player.setShowQualityStats(qualityCheck.checked);
         };
 
+        const audioPlayer = client.getAudioPlayer();
+        if (audioPlayer) {
+            const audioSection = document.createElement('div');
+            audioSection.className = 'audio-controls-box';
+            audioSection.style.margin = '8px 0';
+            audioSection.style.padding = '6px 8px';
+            audioSection.style.border = '1px solid rgba(255, 255, 255, 0.15)';
+            audioSection.style.borderRadius = '4px';
+
+            const volumeRow = document.createElement('div');
+            volumeRow.style.display = 'flex';
+            volumeRow.style.alignItems = 'center';
+            volumeRow.style.gap = '8px';
+
+            const volLabel = document.createElement('label');
+            volLabel.innerText = 'Audio Volume:';
+            volLabel.style.fontSize = '12px';
+
+            const volSlider = document.createElement('input');
+            volSlider.type = 'range';
+            volSlider.min = '0';
+            volSlider.max = '100';
+            volSlider.value = Math.round(audioPlayer.getVolume() * 100).toString();
+            volSlider.style.flex = '1';
+
+            const volValue = document.createElement('span');
+            volValue.innerText = `${volSlider.value}%`;
+            volValue.style.minWidth = '36px';
+            volValue.style.fontSize = '12px';
+
+            volSlider.oninput = () => {
+                const val = parseInt(volSlider.value, 10);
+                audioPlayer.setVolume(val / 100);
+                volValue.innerText = `${val}%`;
+            };
+
+            audioPlayer.on('volume-change', (vol: number) => {
+                const pct = Math.round(vol * 100);
+                volSlider.value = pct.toString();
+                volValue.innerText = `${pct}%`;
+            });
+
+            const muteRow = document.createElement('div');
+            muteRow.style.display = 'flex';
+            muteRow.style.alignItems = 'center';
+            muteRow.style.gap = '8px';
+            muteRow.style.marginTop = '4px';
+
+            const muteCheck = document.createElement('input');
+            muteCheck.type = 'checkbox';
+            muteCheck.id = `mute_audio_${udid}_${playerName}`;
+            muteCheck.checked = audioPlayer.isMuted();
+
+            const muteLabel = document.createElement('label');
+            muteLabel.htmlFor = muteCheck.id;
+            muteLabel.innerText = 'Mute audio';
+            muteLabel.style.fontSize = '12px';
+
+            muteCheck.onchange = () => {
+                audioPlayer.setMute(muteCheck.checked);
+            };
+
+            audioPlayer.on('mute-change', (muted: boolean) => {
+                muteCheck.checked = muted;
+            });
+
+            volumeRow.appendChild(volLabel);
+            volumeRow.appendChild(volSlider);
+            volumeRow.appendChild(volValue);
+
+            muteRow.appendChild(muteCheck);
+            muteRow.appendChild(muteLabel);
+
+            audioSection.appendChild(volumeRow);
+            audioSection.appendChild(muteRow);
+
+            GoogMoreBox.wrap('p', [audioSection], moreBox);
+        }
+
         const stop = (ev?: string | Event) => {
             if (ev && ev instanceof Event && ev.type === 'error') {
                 console.error(TAG, ev);

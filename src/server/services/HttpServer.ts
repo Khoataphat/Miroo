@@ -127,6 +127,11 @@ export class HttpServer extends TypedEmitter<HttpServerEvents> implements Servic
                 server = http.createServer(options, currentApp);
             }
             this.servers.push({ server, port });
+            server.on('connection', (socket: import('net').Socket) => {
+                if (socket && typeof socket.setNoDelay === 'function') {
+                    socket.setNoDelay(true);
+                }
+            });
             server.listen(port, () => {
                 Utils.printListeningMsg(proto, port, PATHNAME);
             });

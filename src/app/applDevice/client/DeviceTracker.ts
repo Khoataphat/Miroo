@@ -42,17 +42,51 @@ export class DeviceTracker extends BaseDeviceTracker<ApplDeviceDescriptor, never
         const fullName = `${this.id}_${Util.escapeUdid(device.udid)}`;
         const isActive = device.state === DeviceState.CONNECTED;
         const servicesId = `device_services_${fullName}`;
-        const row = html`<div class="device ${isActive ? 'active' : 'not-active'}">
-            <div class="device-header">
-                <div class="device-name">"${device.name}"</div>
-                <div class="device-model">${device.model}</div>
-                <div class="device-serial">${device.udid}</div>
-                <div class="device-version">
-                    <div class="release-version">${device.version}</div>
+        const row = html`<div class="device ${isActive ? 'active' : 'not-active'}" id="device_${fullName}">
+            <div class="device-card-inner">
+                <div class="device-header">
+                    <div class="device-icon-box">
+                        <svg
+                            viewBox="0 0 24 24"
+                            width="24"
+                            height="24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.8"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            class="device-glyph"
+                        >
+                            <rect x="5" y="2" width="14" height="20" rx="3" ry="3"></rect>
+                            <line x1="12" y1="18" x2="12.01" y2="18"></line>
+                        </svg>
+                    </div>
+                    <div class="device-title-area">
+                        <div class="device-name-row">
+                            <span class="device-name">${device.name}</span>
+                        </div>
+                        <div class="device-serial-row">
+                            <span class="device-model">${device.model}</span>
+                            <span class="device-serial" title="${device.udid}">${device.udid}</span>
+                        </div>
+                    </div>
+                    <div
+                        class="device-status-badge ${isActive ? 'online' : 'offline'}"
+                        title="Trạng thái: ${device.state}"
+                    >
+                        <span class="status-pulse-dot"></span>
+                        <span class="status-label-text">${isActive ? 'Online' : device.state}</span>
+                    </div>
+                    <div class="device-state" title="State: ${device.state}" style="display:none;"></div>
                 </div>
-                <div class="device-state" title="State: ${device.state}"></div>
+                <div class="device-specs-bar">
+                    <div class="spec-pill os-pill">
+                        <span class="spec-label">iOS</span>
+                        <span class="release-version spec-value">${device.version}</span>
+                    </div>
+                </div>
+                <div id="${servicesId}" class="services"></div>
             </div>
-            <div id="${servicesId}" class="services"></div>
         </div>`.content;
         const services = row.getElementById(servicesId);
         if (!services) {

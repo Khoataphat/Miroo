@@ -32,6 +32,7 @@ export class ConfigureScrcpy extends BaseClient<ParamsStreamScrcpy, ConfigureScr
     private readonly udid: string;
     private readonly escapedUdid: string;
     private readonly playerStorageKey: string;
+    private readonly codecStorageKey: string;
     private deviceName: string;
     private streamReceiver?: StreamReceiverScrcpy;
     private playerName?: string;
@@ -45,7 +46,9 @@ export class ConfigureScrcpy extends BaseClient<ParamsStreamScrcpy, ConfigureScr
     private saveSettingsButton?: HTMLButtonElement;
     private playerSelectElement?: HTMLSelectElement;
     private displayIdSelectElement?: HTMLSelectElement;
+    private codecSelectElement?: HTMLSelectElement;
     private encoderSelectElement?: HTMLSelectElement;
+    private rawEncodersList: string[] = [];
     private connectionStatusElement?: HTMLElement;
     private dialogContainer?: HTMLElement;
     private statusText = '';
@@ -56,11 +59,27 @@ export class ConfigureScrcpy extends BaseClient<ParamsStreamScrcpy, ConfigureScr
         this.udid = descriptor.udid;
         this.escapedUdid = Util.escapeUdid(this.udid);
         this.playerStorageKey = `configure_stream::${this.escapedUdid}::player`;
+        this.codecStorageKey = `configure_stream::${this.escapedUdid}::video_codec`;
         this.deviceName = descriptor['ro.product.model'];
         this.TAG = `ConfigureScrcpy[${this.udid}]`;
         this.createStreamReceiver(params);
         this.setTitle(`${this.deviceName}. Configure stream`);
         this.background = this.createUI();
+    }
+
+    private getStoredCodec(): string {
+        if (!window.localStorage) {
+            return 'avc';
+        }
+        const val = window.localStorage.getItem(this.codecStorageKey);
+        return val === 'hevc' ? 'hevc' : 'avc';
+    }
+
+    private setStoredCodec(codec: string): void {
+        if (!window.localStorage) {
+            return;
+        }
+        window.localStorage.setItem(this.codecStorageKey, codec);
     }
 
     public getTracker(): DeviceTracker {
@@ -102,21 +121,59 @@ export class ConfigureScrcpy extends BaseClient<ParamsStreamScrcpy, ConfigureScr
     }
 
     private onEncoders = (encoders: string[]): void => {
-        // console.log(this.TAG, 'Encoders', encoders);
+        this.rawEncodersList = encoders.slice();
+        const currentCodec = this.codecSelectElement ? this.codecSelectElement.value : this.getStoredCodec();
+        this.filterEncodersByCodec(currentCodec);
+    };
+
+    private filterEncodersByCodec(codec: string): void {
         const select = this.encoderSelectElement || document.createElement('select');
         let child;
         while ((child = select.firstChild)) {
             select.removeChild(child);
         }
-        encoders.unshift('');
-        encoders.forEach((value) => {
+
+        const isHevc = codec === 'hevc';
+        const matchesCodec = (enc: string) => {
+            const lower = enc.toLowerCase();
+            if (isHevc) {
+                return lower.includes('hevc') || lower.includes('h265') || lower.includes('265');
+            } else {
+                return lower.includes('avc') || lower.includes('h264') || lower.includes('264');
+            }
+        };
+
+        const filtered = this.rawEncodersList.filter(matchesCodec);
+        const otherEncoders = this.rawEncodersList.filter((e) => !matchesCodec(e));
+        const listToDisplay = filtered.length > 0 ? filtered : this.rawEncodersList;
+
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.innerText = isHevc ? 'Default (Preferred H.265)' : 'Default (H.264)';
+        select.appendChild(defaultOption);
+
+        listToDisplay.forEach((value) => {
             const optionElement = document.createElement('option');
             optionElement.setAttribute('value', value);
             optionElement.innerText = value;
             select.appendChild(optionElement);
         });
+
+        if (filtered.length > 0 && otherEncoders.length > 0) {
+            const sep = document.createElement('option');
+            sep.disabled = true;
+            sep.innerText = '--- Other Encoders ---';
+            select.appendChild(sep);
+            otherEncoders.forEach((value) => {
+                const optionElement = document.createElement('option');
+                optionElement.setAttribute('value', value);
+                optionElement.innerText = value;
+                select.appendChild(optionElement);
+            });
+        }
+
         this.encoderSelectElement = select;
-    };
+    }
 
     private onDisplayInfo = (infoArray: DisplayCombinedInfo[]): void => {
         // console.log(this.TAG, 'Received info');
@@ -251,6 +308,17 @@ export class ConfigureScrcpy extends BaseClient<ParamsStreamScrcpy, ConfigureScr
                 heightInput.value = height.toString(10);
             }
         }
+        if (this.codecSelectElement) {
+            const enc = (videoSettings.encoderName || '').toLowerCase();
+            if (enc.includes('hevc') || enc.includes('h265') || enc.includes('265')) {
+                this.codecSelectElement.value = 'hevc';
+            } else if (enc.includes('avc') || enc.includes('h264') || enc.includes('264')) {
+                this.codecSelectElement.value = 'avc';
+            } else {
+                this.codecSelectElement.value = this.getStoredCodec();
+            }
+            this.filterEncodersByCodec(this.codecSelectElement.value);
+        }
         if (this.encoderSelectElement) {
             const encoderName = videoSettings.encoderName || '';
             const option = Array.from(this.encoderSelectElement.options).find((element) => {
@@ -362,7 +430,16 @@ export class ConfigureScrcpy extends BaseClient<ParamsStreamScrcpy, ConfigureScr
             if (!isNaN(maxWidth) && !isNaN(maxHeight) && maxWidth && maxHeight) {
                 bounds = new Size(maxWidth, maxHeight);
             }
-            const encoderName = this.getValueFromSelect('encoderName') || undefined;
+            let encoderName = this.getValueFromSelect('encoderName') || undefined;
+            // scrcpy-server.jar (v1.19-ws8) only creates video/avc MediaFormat.
+            // Passing any HEVC encoder causes Qualcomm MediaCodec.native_start to fail with CodecException and freeze devices.
+            if (encoderName) {
+                const lower = encoderName.toLowerCase();
+                if (lower.includes('hevc') || lower.includes('h265') || lower.includes('265')) {
+                    console.warn(this.TAG, 'Discarding incompatible HEVC encoder for AVC-only server:', encoderName);
+                    encoderName = undefined;
+                }
+            }
             return new VideoSettings({
                 bitrate,
                 bounds,
@@ -390,6 +467,10 @@ export class ConfigureScrcpy extends BaseClient<ParamsStreamScrcpy, ConfigureScr
             return '';
         }
         const result = window.localStorage.getItem(this.playerStorageKey);
+        if (result === 'Broadway.js' || result === 'broadway') {
+            window.localStorage.removeItem(this.playerStorageKey);
+            return '';
+        }
         if (result) {
             return result;
         } else {
@@ -470,7 +551,7 @@ export class ConfigureScrcpy extends BaseClient<ParamsStreamScrcpy, ConfigureScr
         this.appendBasicInput(controls, {
             label: 'Bitrate',
             id: 'bitrate',
-            range: { min: 524288, max: 8388608, step: 524288, formatter: Util.prettyBytes },
+            range: { min: 524288, max: 33554432, step: 524288, formatter: Util.prettyBytes },
         });
         this.appendBasicInput(controls, {
             label: 'Max FPS',
@@ -504,6 +585,28 @@ export class ConfigureScrcpy extends BaseClient<ParamsStreamScrcpy, ConfigureScr
         this.appendBasicInput(controls, { label: 'Max width', id: 'maxWidth' });
         this.appendBasicInput(controls, { label: 'Max height', id: 'maxHeight' });
         this.appendBasicInput(controls, { label: 'Codec options', id: 'codecOptions' });
+
+        const codecLabel = document.createElement('label');
+        codecLabel.classList.add('label');
+        codecLabel.innerText = 'Video Codec:';
+        controls.appendChild(codecLabel);
+        const codecSelect = (this.codecSelectElement = document.createElement('select'));
+        codecSelect.classList.add('input');
+        codecSelect.id = codecLabel.htmlFor = `videoCodec_${this.escapedUdid}`;
+        const avcOption = document.createElement('option');
+        avcOption.value = 'avc';
+        avcOption.innerText = 'H.264 (AVC) - Standard / Recommended';
+        const hevcOption = document.createElement('option');
+        hevcOption.value = 'hevc';
+        hevcOption.innerText = 'H.265 (HEVC)';
+        codecSelect.appendChild(avcOption);
+        codecSelect.appendChild(hevcOption);
+        codecSelect.value = this.getStoredCodec();
+        codecSelect.onchange = () => {
+            this.setStoredCodec(codecSelect.value);
+            this.filterEncodersByCodec(codecSelect.value);
+        };
+        controls.appendChild(codecSelect);
 
         const encoderLabel = document.createElement('label');
         encoderLabel.classList.add('label');
@@ -596,6 +699,11 @@ export class ConfigureScrcpy extends BaseClient<ParamsStreamScrcpy, ConfigureScr
     };
 
     private resetSettings = (): void => {
+        if (this.codecSelectElement) {
+            this.codecSelectElement.value = 'avc';
+            this.setStoredCodec('avc');
+            this.filterEncodersByCodec('avc');
+        }
         const player = this.getPlayer();
         if (player) {
             this.fillInputsFromVideoSettings(player.getPreferredVideoSetting(), false);
@@ -607,6 +715,9 @@ export class ConfigureScrcpy extends BaseClient<ParamsStreamScrcpy, ConfigureScr
     };
 
     private saveSettings = (): void => {
+        if (this.codecSelectElement) {
+            this.setStoredCodec(this.codecSelectElement.value);
+        }
         const videoSettings = this.buildVideoSettings();
         const player = this.getPlayer();
         if (videoSettings && player) {
@@ -619,6 +730,9 @@ export class ConfigureScrcpy extends BaseClient<ParamsStreamScrcpy, ConfigureScr
         const videoSettings = this.buildVideoSettings();
         if (!videoSettings || !this.streamReceiver || !this.playerName) {
             return;
+        }
+        if (this.codecSelectElement) {
+            this.setStoredCodec(this.codecSelectElement.value);
         }
         const fitToScreen = this.getFitToScreenValue();
         this.detachEventsListeners(this.streamReceiver);

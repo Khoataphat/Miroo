@@ -89,11 +89,117 @@ export class GoogToolBox extends ToolBox {
             elements.push(screenshot);
         }
 
-        const fullscreen = new ToolBoxButton('Fullscreen Mode', SvgImage.Icon.FULL_SCREEN);
+        const fullscreen = new ToolBoxButton('Phóng to toàn màn hình (F)', SvgImage.Icon.FULL_SCREEN);
         fullscreen.addEventListener('click', () => {
-            player.getParent()?.requestFullscreen();
+            if (!document.fullscreenElement) {
+                const target = document.documentElement || player.getParent();
+                target?.requestFullscreen().catch(() => {
+                    player.getParent()?.requestFullscreen();
+                });
+            } else {
+                document.exitFullscreen().catch(() => void 0);
+            }
         });
         elements.push(fullscreen);
+
+        let toastTimer: ReturnType<typeof setTimeout> | null = null;
+        const showLiveToast = (msg: string) => {
+            let toast = document.querySelector('.livestream-toast') as HTMLElement;
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.className = 'livestream-toast';
+                document.body.appendChild(toast);
+            }
+            toast.innerHTML = `<span class="live-dot"></span><span>${msg}</span>`;
+            toast.classList.add('show');
+            if (toastTimer) {
+                clearTimeout(toastTimer);
+            }
+            toastTimer = setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3500);
+        };
+
+        let idleCursorTimer: ReturnType<typeof setTimeout> | null = null;
+        const resetIdleCursor = () => {
+            if (!document.body.classList.contains('livestream-mode')) {
+                document.body.classList.remove('hide-cursor');
+                return;
+            }
+            document.body.classList.remove('hide-cursor');
+            if (idleCursorTimer) {
+                clearTimeout(idleCursorTimer);
+            }
+            idleCursorTimer = setTimeout(() => {
+                if (document.body.classList.contains('livestream-mode')) {
+                    document.body.classList.add('hide-cursor');
+                }
+            }, 2500);
+        };
+        window.addEventListener('mousemove', resetIdleCursor);
+
+        const toggleLiveStreamMode = () => {
+            const isLive = document.body.classList.toggle('livestream-mode');
+            if (isLive) {
+                showLiveToast('🔴 Chế độ Live Stream đã bật (Nhấn phím "L" hoặc Esc để thoát)');
+                resetIdleCursor();
+            } else {
+                document.body.classList.remove('hide-cursor');
+                showLiveToast('Đã thoát chế độ Live Stream');
+            }
+        };
+
+        window.addEventListener('keydown', (e: KeyboardEvent) => {
+            if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+                return;
+            }
+            if (e.key === 'l' || e.key === 'L') {
+                toggleLiveStreamMode();
+            } else if (e.key === 'f' || e.key === 'F') {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(() => void 0);
+                } else {
+                    document.exitFullscreen().catch(() => void 0);
+                }
+            } else if (e.key === 'Escape' && document.body.classList.contains('livestream-mode')) {
+                toggleLiveStreamMode();
+            }
+        });
+
+        const liveStreamBtn = new ToolBoxButton('Live Stream / OBS Mode (L)', SvgImage.Icon.LIVESTREAM);
+        liveStreamBtn.addEventListener('click', () => {
+            toggleLiveStreamMode();
+        });
+        elements.push(liveStreamBtn);
+
+        const audioPlayer = client.getAudioPlayer();
+        if (audioPlayer) {
+            const isInitiallyMuted = audioPlayer.isMuted();
+            const audioBtn = new ToolBoxButton(
+                isInitiallyMuted ? 'Unmute Audio' : 'Mute Audio',
+                isInitiallyMuted ? SvgImage.Icon.VOLUME_OFF : SvgImage.Icon.VOLUME_UP,
+            );
+            const updateAudioIcon = (isMuted: boolean) => {
+                const btnElement = audioBtn.getElement();
+                const label = isMuted ? 'Unmute Audio' : 'Mute Audio';
+                btnElement.setAttribute('aria-label', label);
+                btnElement.setAttribute('data-title', label);
+                const newSvg = SvgImage.create(isMuted ? SvgImage.Icon.VOLUME_OFF : SvgImage.Icon.VOLUME_UP);
+                const oldSvg = btnElement.querySelector('svg');
+                if (oldSvg) {
+                    btnElement.replaceChild(newSvg, oldSvg);
+                }
+            };
+            audioBtn.addEventListener('click', () => {
+                audioPlayer.resume().catch(() => void 0);
+                const isMuted = audioPlayer.toggleMute();
+                updateAudioIcon(isMuted);
+            });
+            audioPlayer.on('mute-change', (isMuted: boolean) => {
+                updateAudioIcon(isMuted);
+            });
+            elements.push(audioBtn);
+        }
 
         const keyboard = new ToolBoxCheckbox(
             'Capture keyboard',

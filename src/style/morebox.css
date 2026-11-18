@@ -1,20 +1,154 @@
-.text-area {
-    width: 100%;
-    resize: vertical;
-}
-
 .more-box {
     display: none;
     position: absolute;
-    right: var(--panel-width);
-    background-color: var(--controls-bg-color);
-    z-index: 2;
-    padding: 0 .714rem .714rem .714rem;
+    right: 74px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--dock-bg-color);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--dock-border-color);
+    border-radius: 20px;
+    box-shadow: var(--dock-shadow);
+    z-index: 55;
+    padding: 16px;
+    width: 320px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    box-sizing: border-box;
+    font-family: var(--font-family);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.text-with-shadow, .more-box label {
+.more-box::-webkit-scrollbar {
+    width: 4px;
+}
+
+.more-box::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.3);
+    border-radius: 4px;
+}
+
+.more-box p {
+    margin: 0 0 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.text-with-shadow {
     color: var(--text-color);
-    text-shadow: var(--text-shadow-color) 0 0 .357rem;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: -0.01em;
+}
+
+.text-area {
+    width: 100%;
+    min-height: 72px;
+    resize: vertical;
+    border-radius: 10px;
+    border: 1px solid var(--card-border-color);
+    background: var(--card-bg-color);
+    color: var(--text-color);
+    font-family: var(--font-family);
+    font-size: 12.5px;
+    padding: 8px 10px;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+.text-area:focus {
+    border-color: var(--primary-color);
+}
+
+.more-box button {
+    border-radius: 8px;
+    border: 1px solid var(--card-border-color);
+    background: var(--card-bg-color);
+    color: var(--text-color);
+    font-family: var(--font-family);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.more-box button:hover {
+    background: var(--primary-color);
+    color: #ffffff;
+    border-color: var(--primary-color);
+}
+
+.more-box input[type="text"],
+.more-box input[type="number"] {
+    border-radius: 6px;
+    border: 1px solid var(--card-border-color);
+    background: var(--card-bg-color);
+    color: var(--text-color);
+    font-family: var(--font-family);
+    font-size: 12px;
+    padding: 5px 8px;
+    width: 100%;
+    box-sizing: border-box;
+    outline: none;
+}
+
+.more-box input[type="text"]:focus,
+.more-box input[type="number"]:focus {
+    border-color: var(--primary-color);
+}
+
+.more-box label {
+    color: var(--text-color-secondary);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.spoiler {
+    border: 1px solid var(--card-border-color);
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.02);
+    overflow: hidden;
+    margin-top: 8px;
+}
+
+:root[data-theme="dark"] .spoiler,
+body.theme-dark .spoiler {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.spoiler > label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 10px;
+    color: var(--text-color);
+    user-select: none;
+    transition: background 0.15s ease;
+}
+
+.spoiler > label:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.spoiler > label::before {
+    content: '►';
+    font-size: 9px;
+    color: var(--primary-color);
+    transition: transform 0.2s ease;
+}
+
+.spoiler > input:checked ~ label::before {
+    transform: rotate(90deg);
 }
 
 .spoiler > input ~ .box {
@@ -22,21 +156,11 @@
 }
 
 .spoiler > input:checked ~ .box {
-    display: block;
-}
-
-.spoiler > label::before {
-    content: '►';
-    margin-right: 5px;
-}
-
-.spoiler > input:checked ~ label::before {
-    content: '▼';
-}
-
-.spoiler > input:checked ~ div {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     padding: 10px;
+    border-top: 1px solid var(--card-border-color);
 }
 
 .spoiler > input {

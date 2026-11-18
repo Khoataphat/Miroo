@@ -8,9 +8,9 @@ window.onload = async function (): Promise<void> {
     const parsedQuery = new URLSearchParams(hash);
     const action = parsedQuery.get('action');
 
-    /// #if USE_BROADWAY
-    const { BroadwayPlayer } = await import('./player/BroadwayPlayer');
-    StreamClientScrcpy.registerPlayer(BroadwayPlayer);
+    /// #if USE_WEBCODECS
+    const { WebCodecsPlayer } = await import('./player/WebCodecsPlayer');
+    StreamClientScrcpy.registerPlayer(WebCodecsPlayer);
     /// #endif
 
     /// #if USE_H264_CONVERTER
@@ -23,9 +23,9 @@ window.onload = async function (): Promise<void> {
     StreamClientScrcpy.registerPlayer(TinyH264Player);
     /// #endif
 
-    /// #if USE_WEBCODECS
-    const { WebCodecsPlayer } = await import('./player/WebCodecsPlayer');
-    StreamClientScrcpy.registerPlayer(WebCodecsPlayer);
+    /// #if USE_BROADWAY
+    const { BroadwayPlayer } = await import('./player/BroadwayPlayer');
+    StreamClientScrcpy.registerPlayer(BroadwayPlayer);
     /// #endif
 
     if (action === StreamClientScrcpy.ACTION && typeof parsedQuery.get('udid') === 'string') {
@@ -108,5 +108,7 @@ window.onload = async function (): Promise<void> {
             DeviceTracker.registerTool(tool);
         });
     }
+    const { NavBar } = await import('./ui/NavBar');
+    NavBar.init();
     HostTracker.start();
 };

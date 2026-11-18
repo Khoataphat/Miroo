@@ -6,6 +6,7 @@ import { NetInterface } from '../../types/NetInterface';
 import { TypedEmitter } from '../../common/TypedEmitter';
 import GoogDeviceDescriptor from '../../types/GoogDeviceDescriptor';
 import { ScrcpyServer } from './ScrcpyServer';
+import { AudioServer } from './AudioServer';
 import { Properties } from './Properties';
 import Timeout = NodeJS.Timeout;
 
@@ -29,6 +30,7 @@ export class Device extends TypedEmitter<DeviceEvents> {
     private client: AdbKitClient;
     private properties?: Record<string, string>;
     private spawnServer = true;
+    private startingServerPromise?: Promise<number | undefined>;
     private updateTimeoutId?: Timeout;
     private updateTimeout = Device.INITIAL_UPDATE_TIMEOUT;
     private updateCount = 0;
@@ -63,10 +65,23 @@ export class Device extends TypedEmitter<DeviceEvents> {
             this.properties = undefined;
         } else {
             this.connected = false;
+            this.descriptor.pid = -1;
+            if (this.updateTimeoutId) {
+                clearTimeout(this.updateTimeoutId);
+                this.updateTimeoutId = undefined;
+            }
+            if (this.throttleTimeoutId) {
+                clearTimeout(this.throttleTimeoutId);
+                this.throttleTimeoutId = undefined;
+            }
+            this.startingServerPromise = undefined;
+            AudioServer.stop(this.udid, this);
         }
         this.descriptor.state = state;
         this.emitUpdate();
-        this.fetchDeviceInfo();
+        if (this.connected) {
+            this.fetchDeviceInfo();
+        }
     }
 
     public isConnected(): boolean {
@@ -175,7 +190,8 @@ export class Device extends TypedEmitter<DeviceEvents> {
     }
 
     private async pidOf(processName: string): Promise<number[]> {
-        return this.runShellCommandAdbKit(`pidof ${processName}`)
+        const names = processName === 'app_process' ? 'app_process app_process64 app_process32' : processName;
+        return this.runShellCommandAdbKit(`pidof ${names}`)
             .then((output) => {
                 return output
                     .split(' ')
@@ -195,7 +211,11 @@ export class Device extends TypedEmitter<DeviceEvents> {
                 .trim()
                 .split(' ')
                 .filter((item) => item.length);
-            if (cols[cols.length - 1] === processName) {
+            const cmd = cols[cols.length - 1];
+            const matches =
+                cmd === processName ||
+                (processName === 'app_process' && (cmd === 'app_process64' || cmd === 'app_process32'));
+            if (matches) {
                 const pid = parseInt(cols[1], 10);
                 if (!isNaN(pid)) {
                     list.push(pid);
@@ -227,8 +247,9 @@ export class Device extends TypedEmitter<DeviceEvents> {
 
     private async listProc(processName: string): Promise<number[]> {
         const find = `find /proc -maxdepth 2 -name cmdline  2>/dev/null`;
+        const pattern = processName === 'app_process' ? '^app_process(32|64)?\\b' : `^${processName}\\b`;
         const lines = await this.runShellCommandAdbKit(
-            `for L in \`${find}\`; do grep -sae '^${processName}' $L 2>&1 >/dev/null && echo $L; done`,
+            `for L in \`${find}\`; do grep -Esae '${pattern}' $L 2>&1 >/dev/null && echo $L; done`,
         );
         const re = /\/proc\/([0-9]+)\/cmdline/;
         const list: number[] = [];
@@ -425,6 +446,7 @@ export class Device extends TypedEmitter<DeviceEvents> {
 
     public async killServer(pid: number): Promise<void> {
         this.spawnServer = false;
+        this.startingServerPromise = undefined;
         const realPid = await this.getServerPid();
         if (typeof realPid !== 'number') {
             return;
@@ -451,15 +473,23 @@ export class Device extends TypedEmitter<DeviceEvents> {
         if (typeof pid === 'number') {
             return pid;
         }
-        try {
-            const output = await ScrcpyServer.run(this);
-            if (output) {
-                console.log(this.TAG, `start server: "${output}"`);
-            }
-            return this.getServerPid();
-        } catch (error: any) {
-            console.error(this.TAG, `Error: ${error.message}`);
-            throw error;
+        if (this.startingServerPromise) {
+            return this.startingServerPromise;
         }
+        this.startingServerPromise = (async () => {
+            try {
+                const output = await ScrcpyServer.run(this);
+                if (output) {
+                    console.log(this.TAG, `start server: "${output}"`);
+                }
+                return await this.getServerPid();
+            } catch (error: any) {
+                console.error(this.TAG, `Error: ${error.message}`);
+                throw error;
+            } finally {
+                this.startingServerPromise = undefined;
+            }
+        })();
+        return this.startingServerPromise;
     }
 }

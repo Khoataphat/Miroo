@@ -12,4 +12,6 @@ export enum ACTION {
     STREAM_MJPEG = 'stream-mjpeg',
     PROXY_WDA = 'proxy-wda',
     FILE_LISTING = 'list-files',
+    PROXY_AUDIO = 'proxy-audio',
+    AUDIO = 'audio',
 }

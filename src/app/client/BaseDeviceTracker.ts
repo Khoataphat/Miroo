@@ -9,6 +9,7 @@ import { HostItem } from '../../types/Configuration';
 import { Tool } from './Tool';
 import Util from '../Util';
 import { EventMap } from '../../common/TypedEmitter';
+import { NavBar } from '../ui/NavBar';
 
 const TAG = '[BaseDeviceTracker]';
 
@@ -25,6 +26,17 @@ export abstract class BaseDeviceTracker<DD extends BaseDeviceDescriptor, TE exte
     public static readonly AttributePrefixPlayerFor = 'player_for_';
     protected static tools: Set<Tool> = new Set();
     protected static instanceId = 0;
+    protected static allTrackers: Set<BaseDeviceTracker<any, any>> = new Set();
+
+    public static refreshAll(): void {
+        for (const tracker of this.allTrackers) {
+            try {
+                tracker.openNewConnection();
+            } catch (e: any) {
+                console.error(TAG, e?.message);
+            }
+        }
+    }
 
     public static registerTool(tool: Tool): void {
         this.tools.add(tool);
@@ -88,6 +100,9 @@ export abstract class BaseDeviceTracker<DD extends BaseDeviceDescriptor, TE exte
         this.trackerName = `Unavailable. Host: ${params.hostname}, type: ${params.type}`;
         this.setBodyClass('list');
         this.setTitle();
+        NavBar.init();
+        NavBar.onRefreshHandler = () => BaseDeviceTracker.refreshAll();
+        BaseDeviceTracker.allTrackers.add(this);
     }
 
     public static parseParameters(params: URLSearchParams): ParamsDeviceTracker {
@@ -109,9 +124,24 @@ export abstract class BaseDeviceTracker<DD extends BaseDeviceDescriptor, TE exte
         const tbody = this.getOrBuildTableBody(devices);
 
         const block = this.getOrCreateTrackerBlock(tbody, this.trackerName);
-        data.forEach((item) => {
-            this.buildDeviceRow(block, item);
-        });
+        let cardsGrid = block.querySelector<HTMLElement>('.device-cards-grid');
+        if (!cardsGrid) {
+            cardsGrid = document.createElement('div');
+            cardsGrid.className = 'device-cards-grid';
+            block.appendChild(cardsGrid);
+        } else {
+            cardsGrid.innerHTML = '';
+        }
+
+        if (data.length === 0) {
+            block.style.display = 'none';
+        } else {
+            block.style.display = 'block';
+            data.forEach((item) => {
+                this.buildDeviceRow(cardsGrid!, item);
+            });
+        }
+        NavBar.updateCounts();
     }
 
     private setNameValue(parent: Element | null, name: string): void {
@@ -124,22 +154,25 @@ export abstract class BaseDeviceTracker<DD extends BaseDeviceDescriptor, TE exte
             nameEl = document.createElement('div');
             nameEl.id = nameBlockId;
             nameEl.className = 'tracker-name';
+            parent.insertBefore(nameEl, parent.firstChild);
         }
-        nameEl.innerText = name;
-        parent.insertBefore(nameEl, parent.firstChild);
+        let formattedName = name;
+        if (name.includes('type: android') || name.startsWith('aDevice')) {
+            formattedName = 'Thiết bị Android';
+        } else if (name.includes('type: ios') || name.startsWith('iDevice')) {
+            formattedName = 'Thiết bị iOS';
+        }
+        nameEl.innerText = formattedName;
     }
 
-    private getOrCreateTrackerBlock(parent: Element, controlCenterName: string): Element {
+    private getOrCreateTrackerBlock(parent: Element, controlCenterName: string): HTMLElement {
         let el = document.getElementById(this.elementId);
         if (!el) {
             el = document.createElement('div');
             el.id = this.elementId;
+            el.className = 'tracker-block';
             parent.appendChild(el);
             this.created = true;
-        } else {
-            while (el.children.length) {
-                el.removeChild(el.children[0]);
-            }
         }
         this.setNameValue(el, controlCenterName);
         return el;
@@ -245,6 +278,7 @@ export abstract class BaseDeviceTracker<DD extends BaseDeviceDescriptor, TE exte
 
     public destroy(): void {
         super.destroy();
+        BaseDeviceTracker.allTrackers.delete(this);
         if (this.created) {
             const el = document.getElementById(this.elementId);
             if (el) {
@@ -259,6 +293,7 @@ export abstract class BaseDeviceTracker<DD extends BaseDeviceDescriptor, TE exte
         if (holder && !holder.children.length) {
             holder.remove();
         }
+        NavBar.updateCounts();
     }
 
     protected supportMultiplexing(): boolean {

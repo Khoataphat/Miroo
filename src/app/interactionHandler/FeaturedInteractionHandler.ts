@@ -25,9 +25,11 @@ export class FeaturedInteractionHandler extends InteractionHandler {
     ];
     private static readonly keyEventsNames: KeyEventNames[] = ['keydown', 'keyup'];
     public static SCROLL_EVENT_THROTTLING_TIME = 30; // one event per 50ms
+    public static MOVE_EVENT_THROTTLING_TIME = 16; // at most ~60Hz for move events to prevent Android InputDispatcher overflow
     private readonly storedFromMouseEvent = new Map<number, TouchControlMessage>();
     private readonly storedFromTouchEvent = new Map<number, TouchControlMessage>();
     private lastScrollEvent?: { time: number; hScroll: number; vScroll: number };
+    private lastMoveTime = 0;
 
     constructor(player: BasePlayer, public readonly listener: InteractionHandlerListener) {
         super(player, FeaturedInteractionHandler.touchEventsNames, FeaturedInteractionHandler.keyEventsNames);
@@ -59,6 +61,13 @@ export class FeaturedInteractionHandler extends InteractionHandler {
         const screenInfo = this.player.getScreenInfo();
         if (!screenInfo) {
             return;
+        }
+        if (event.type === 'mousemove' || event.type === 'touchmove') {
+            const now = performance.now();
+            if (now - this.lastMoveTime < FeaturedInteractionHandler.MOVE_EVENT_THROTTLING_TIME) {
+                return;
+            }
+            this.lastMoveTime = now;
         }
         let messages: ControlMessage[];
         let storage: Map<number, TouchControlMessage>;

@@ -21,10 +21,10 @@ export class MsePlayer extends BasePlayer {
     public static readonly playerCodeName = 'mse';
     public static readonly preferredVideoSettings: VideoSettings = new VideoSettings({
         lockedVideoOrientation: -1,
-        bitrate: 7340032,
+        bitrate: 16777216,
         maxFps: 60,
-        iFrameInterval: 10,
-        bounds: new Size(720, 720),
+        iFrameInterval: 5,
+        bounds: new Size(1920, 1920),
         sendFrameMeta: false,
     });
     private static DEFAULT_FRAMES_PER_FRAGMENT = 1;
@@ -442,6 +442,28 @@ export class MsePlayer extends BasePlayer {
 
     public getFitToScreenStatus(): boolean {
         return MsePlayer.getFitToScreenStatus(this.udid, this.displayInfo);
+    }
+
+    public static loadVideoSettings(udid: string, displayInfo?: DisplayInfo): VideoSettings {
+        const loaded = super.loadVideoSettings(udid, displayInfo);
+        const preferred = MsePlayer.preferredVideoSettings;
+        const bitrate = Math.max(loaded.bitrate, preferred.bitrate);
+        let bounds = loaded.bounds;
+        if (!bounds || bounds.width > 1920 || bounds.height > 1920 || (bounds.width < 1080 && bounds.height < 1080)) {
+            bounds = preferred.bounds;
+        }
+        return new VideoSettings({
+            crop: loaded.crop,
+            bitrate,
+            bounds,
+            maxFps: loaded.maxFps,
+            iFrameInterval: loaded.iFrameInterval,
+            sendFrameMeta: loaded.sendFrameMeta,
+            lockedVideoOrientation: loaded.lockedVideoOrientation,
+            displayId: loaded.displayId,
+            codecOptions: loaded.codecOptions,
+            encoderName: loaded.encoderName,
+        });
     }
 
     public loadVideoSettings(): VideoSettings {

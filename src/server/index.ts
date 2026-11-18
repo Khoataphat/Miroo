@@ -1,5 +1,7 @@
 import '../../LICENSE';
 import * as readline from 'readline';
+import * as path from 'path';
+import * as fs from 'fs';
 import { Config } from './Config';
 import { HttpServer } from './services/HttpServer';
 import { WebSocketServer } from './services/WebSocketServer';
@@ -8,6 +10,11 @@ import { MwFactory } from './mw/Mw';
 import { WebsocketProxy } from './mw/WebsocketProxy';
 import { HostTracker } from './mw/HostTracker';
 import { WebsocketMultiplexer } from './mw/WebsocketMultiplexer';
+
+const localPlatformTools = path.resolve(process.cwd(), 'platform-tools');
+if (fs.existsSync(localPlatformTools) && !process.env.PATH?.includes(localPlatformTools)) {
+    process.env.PATH = `${localPlatformTools}${path.delimiter}${process.env.PATH || ''}`;
+}
 
 const servicesToStart: ServiceClass[] = [HttpServer, WebSocketServer];
 
@@ -25,8 +32,9 @@ const config = Config.getInstance();
 /// #if INCLUDE_GOOG
 async function loadGoogModules() {
     const { ControlCenter } = await import('./goog-device/services/ControlCenter');
-    const { DeviceTracker } = await import('./goog-device/mw/DeviceTracker');
     const { WebsocketProxyOverAdb } = await import('./goog-device/mw/WebsocketProxyOverAdb');
+    const { AudioProxy } = await import('./goog-device/mw/AudioProxy');
+    const { DeviceTracker } = await import('./goog-device/mw/DeviceTracker');
 
     if (config.runLocalGoogTracker) {
         mw2List.push(DeviceTracker);
@@ -61,6 +69,7 @@ async function loadGoogModules() {
     /// #endif
 
     mwList.push(WebsocketProxyOverAdb);
+    mwList.push(AudioProxy);
 }
 loadPlatformModulesPromises.push(loadGoogModules());
 /// #endif
